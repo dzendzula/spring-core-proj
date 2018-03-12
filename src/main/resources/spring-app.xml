@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<beans xmlns="http://www.springframework.org/schema/beans"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns:jpa="http://www.springframework.org/schema/data/jpa"
+    xmlns:tx="http://www.springframework.org/schema/tx"
+    xmlns:context="http://www.springframework.org/schema/context" xmlns:util="http://www.springframework.org/schema/util"
+    xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd
+        http://www.springframework.org/schema/data/jpa http://www.springframework.org/schema/data/jpa/spring-jpa.xsd
+        http://www.springframework.org/schema/tx http://www.springframework.org/schema/tx/spring-tx.xsd
+        http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context.xsd
+          http://www.springframework.org/schema/util http://www.springframework.org/schema/util/spring-util.xsd">
+
+
+    <context:property-placeholder location="classpath*:/version.properties,classpath*:/local.properties,classpath*:/messages.properties"/>
+
+    <context:component-scan base-package="net.servodata.app"/>
+
+    <bean id="appDbInfo" class="net.servodata.app.system.DbInfo" depends-on="systemInfo">
+        <property name="dataSource" ref="appDataSource"/>
+        <property name="dataSourceName" value="APP_DS"/>
+    </bean>
+
+    <bean id="appJpaVendorAdapter" class="org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter">
+        <property name="databasePlatform" value="net.servodata.kompost.app.hibernate.PostgreSQLDialect"/>
+    </bean>
+
+    <bean id="appEntityManagerFactory" class="org.springframework.orm.jpa.LocalContainerEntityManagerFactoryBean" depends-on="appDbInfo">
+        <property name="dataSource" ref="appDataSource"/>
+        <property name="persistenceUnitName" value="appPersistenceUnit"/>
+        <property name="packagesToScan" value="net.servodata.kompost"/>
+        <property name="jpaVendorAdapter" ref="appJpaVendorAdapter"/>
+        <property name="jpaProperties">
+            <props>
+                <prop key="hibernate.show_sql">${hibernate.show_sql}</prop>
+                <!--
+                <prop key="hibernate.search.lucene_version">${hibernate.search.lucene_version}</prop>
+                <prop key="hibernate.search.default.worker.backend">local</prop>
+                <prop key="hibernate.search.default.worker.backend">net.servodata.aukro.applogic.search.hibernate.backend.RabbitBackendQueueProcessor</prop>
+                <prop key="hibernate.search.default.indexmanager">net.servodata.aukro.applogic.search.elasticsearch.impl.ElasticsearchIndexManager</prop>
+                <prop key="hibernate.search.default.indexmanager">elasticsearch</prop>
+                <prop key="hibernate.search.default.elasticsearch.host">http://127.0.0.1:9200</prop>
+                <prop key="hibernate.search.default.elasticsearch.index_schema_management_strategy">CREATE</prop>
+                <prop key="hibernate.search.default.elasticsearch.index_management_wait_timeout">10000</prop>
+                <prop key="hibernate.search.default.elasticsearch.required_index_status">green</prop>
+                <prop key="hibernate.search.default.elasticsearch.refresh_after_write">false</prop>
+                -->
+            </props>
+        </property>
+    </bean>
+
+    <bean id="appTransactionManager" class="org.springframework.orm.jpa.JpaTransactionManager">
+        <property name="entityManagerFactory" ref="appEntityManagerFactory"/>
+    </bean>
+
+    <tx:annotation-driven transaction-manager="appTransactionManager"/>
+
+    <jpa:repositories base-package="net.servodata.kompost" entity-manager-factory-ref="appEntityManagerFactory" transaction-manager-ref="appTransactionManager"/>
+
+    <bean id="googleConnectionFactory" class="org.springframework.social.google.connect.GoogleConnectionFactory">
+        <constructor-arg name="clientId" value="${spring.security.oauth2.client.registration.google.client.id}"/>
+        <constructor-arg name="clientSecret" value="${spring.security.oauth2.client.registration.google.client.secret}"/>
+    </bean>
+
+    <bean id="connectionFactoryLocator" class="org.springframework.social.connect.support.ConnectionFactoryRegistry">
+        <property name="connectionFactories">
+            <list value-type="org.springframework.social.connect.ConnectionFactory">
+                <ref bean="googleConnectionFactory"/>
+            </list>
+        </property>
+    </bean>
+
+    <bean id="textEncryptor" class="org.springframework.security.crypto.encrypt.Encryptors" factory-method="noOpText"/>
+    <bean id="connectionSignUp" class="net.servodata.kompost.app.security.SimpleConnectionSignUp"/>
+
+    <bean id="usersConnectionRepository" class="org.springframework.social.connect.jdbc.JdbcUsersConnectionRepository">
+        <constructor-arg name="dataSource" ref="appDataSource"/>
+        <constructor-arg name="connectionFactoryLocator" ref="connectionFactoryLocator"/>
+        <constructor-arg name="textEncryptor" ref="textEncryptor"/>
+        <property name="connectionSignUp" ref="connectionSignUp"/>
+    </bean>
+
+    <bean id="providerSignInController" class="org.springframework.social.connect.web.ProviderSignInController">
+        <constructor-arg name="connectionFactoryLocator" ref="connectionFactoryLocator"/>
+        <constructor-arg name="usersConnectionRepository" ref="usersConnectionRepository"/>
+        <constructor-arg name="signInAdapter">
+            <bean class="net.servodata.kompost.app.security.util.UserAuthorizationValidator"/>
+        </constructor-arg>
+    </bean>
+
+    <bean id="resourceBundleMessageSource" class="org.springframework.context.support.ResourceBundleMessageSource">
+        <property name="basename" value="messages"/>
+    </bean>
+
+    <bean name="springResourceTemplateResolver" class="org.thymeleaf.spring5.templateresolver.SpringResourceTemplateResolver">
+        <property name="prefix" value="/resources/template/"/>
+        <property name="suffix" value=".html"/>
+        <property name="templateMode" value="HTML"/>
+        <property name="cacheable" value="false"/>
+        <property name="characterEncoding" value="UTF-8"/>
+    </bean>
+
+    <bean id="templateEngine" class="org.thymeleaf.spring5.SpringTemplateEngine">
+        <property name="templateResolver" ref="springResourceTemplateResolver"/>
+        <property name="additionalDialects">
+            <set>
+                <bean class="org.thymeleaf.extras.java8time.dialect.Java8TimeDialect"/>
+                <bean class="nz.net.ultraq.thymeleaf.LayoutDialect"/>
+                <bean class="org.thymeleaf.extras.springsecurity4.dialect.SpringSecurityDialect"/>
+            </set>
+        </property>
+    </bean>
+
+    <bean class="org.thymeleaf.spring5.view.ThymeleafViewResolver">
+        <property name="templateEngine" ref="templateEngine"/>
+        <property name="characterEncoding" value="UTF-8"/>
+    </bean>
+
+    <bean id="mailingTemplateEngine" class="org.thymeleaf.spring5.SpringTemplateEngine">
+        <property name="messageSource" ref="messageSource"/>
+        <property name="additionalDialects">
+            <set>
+                <bean class="org.thymeleaf.extras.java8time.dialect.Java8TimeDialect"/>
+            </set>
+        </property>
+    </bean>
+
+
+
+</beans>
